@@ -1,0 +1,171 @@
+from github import Github
+import os
+import re
+from datetime import datetime, timedelta
+
+# -- SETUP --
+GITHUB_TOKEN = os.getenv("GITHUB_TOKEN") or "your_personal_access_token_here"
+USERNAME = "welshDog"
+DEFAULT_DESC = "🧹 BROski Project - Neurodivergent-friendly tech (auto-tidied, description coming soon!)"
+ARCHIVE_AFTER_MONTHS = 12  # Archive repos with no activity for 12+ months
+
+# Secret patterns to scan for (basic checks)
+SECRET_PATTERNS = [
+    r'api[_-]?key["\s:=]+[\w-]{20,}',
+    r'secret[_-]?key["\s:=]+[\w-]{20,}',
+    r'password["\s:=]+[\w-]{8,}',
+    r'bearer\s+[a-zA-Z0-9\-._~+/]+=*',
+    r'ghp_[a-zA-Z0-9]{36}',  # GitHub personal access tokens
+    r'sk-[a-zA-Z0-9]{48}',   # OpenAI keys
+]
+
+def create_readme(repo_name, repo_url):
+    """Generate a proper README with status badge"""
+    return f"""# {repo_name}
+
+![Status](https://img.shields.io/badge/status-active-brightgreen) 
+![BROski](https://img.shields.io/badge/BROski-ADHD%20Powered-blueviolet)
+
+> Part of the **Hyperfocus Zone** constellation 🚀  
+> Built with neurodivergent-friendly workflows in mind.
+
+## About
+This project is part of the BROski ecosystem supporting neurodivergent developers and creators.
+
+**Status:** Work in Progress (auto-tidied, full docs coming soon!)
+
+## Links
+- 🌟 [GitHub Profile](https://github.com/{USERNAME})
+- 💜 [Hyperfocus Zone](https://github.com/{USERNAME}/Hyperfocus-Zone)
+- 🛍️ [Shop](https://hyperfocuszone.myspreadshop.co.uk/)
+
+## License
+See LICENSE file for details.
+
+---
+*Auto-generated with 💜 by BROski Constellation Cleaner*
+"""
+
+def scan_for_secrets(repo):
+    """Basic secret pattern scanning in repo files"""
+    findings = []
+    try:
+        contents = repo.get_contents("")
+        files_to_check = []
+        
+        # Get common files to check
+        for content in contents:
+            if content.type == "file" and content.name.lower() in [
+                'config.py', 'config.js', '.env', 'settings.py', 
+                'secrets.json', 'credentials.json'
+            ]:
+                files_to_check.append(content)
+        
+        for file_content in files_to_check[:5]:  # Limit to avoid rate limits
+            try:
+                file_data = repo.get_contents(file_content.path).decoded_content.decode('utf-8')
+                for pattern in SECRET_PATTERNS:
+                    if re.search(pattern, file_data, re.IGNORECASE):
+                        findings.append(f"⚠️  Potential secret in {file_content.path}")
+                        break
+            except:
+                pass
+    except:
+        pass
+    
+    return findings
+
+# -- CONNECT --
+print("🚀 BROski Constellation Cleaner starting...")
+g = Github(GITHUB_TOKEN)
+user = g.get_user(USERNAME)
+repos = list(user.get_repos())
+
+print(f"Found {len(repos)} repositories to clean!\n")
+
+stats = {
+    'descriptions_added': 0,
+    'readmes_added': 0,
+    'topics_added': 0,
+    'archived': 0,
+    'secrets_found': 0
+}
+
+for idx, repo in enumerate(repos, 1):
+    print(f"[{idx}/{len(repos)}] 🔍 {repo.name}")
+    
+    # Skip if already archived
+    if repo.archived:
+        print("  ⏭️  Already archived, skipping")
+        continue
+    
+    # -- DESCRIPTIONS --
+    if not repo.description or repo.description.strip() == "":
+        repo.edit(description=DEFAULT_DESC)
+        print(f"  ✅ Added description")
+        stats['descriptions_added'] += 1
+    
+    # -- README --
+    has_readme = False
+    try:
+        repo.get_contents("README.md")
+        has_readme = True
+        print("  ✓ README exists")
+    except:
+        try:
+            readme_content = create_readme(repo.name, repo.html_url)
+            repo.create_file("README.md", "🧹 Auto-generated README by BROski Cleaner", readme_content)
+            print("  ✅ Added README.md with status badge")
+            stats['readmes_added'] += 1
+        except Exception as e:
+            print(f"  ⚠️  Could not add README: {str(e)[:50]}")
+    
+    # -- TOPICS --
+    topics = set(repo.get_topics())
+    added_topics = []
+    
+    if "neurodivergent" not in topics:
+        topics.add("neurodivergent")
+        added_topics.append("neurodivergent")
+    
+    if "adhd" not in topics:
+        topics.add("adhd")
+        added_topics.append("adhd")
+    
+    if "hyperfocus-zone" not in topics:
+        topics.add("hyperfocus-zone")
+        added_topics.append("hyperfocus-zone")
+    
+    if added_topics:
+        repo.replace_topics(list(topics))
+        print(f"  ✅ Added topics: {', '.join(added_topics)}")
+        stats['topics_added'] += 1
+    
+    # -- SECRET SCAN (basic) --
+    secret_findings = scan_for_secrets(repo)
+    if secret_findings:
+        print(f"  🚨 SECRET ALERT:")
+        for finding in secret_findings:
+            print(f"     {finding}")
+        stats['secrets_found'] += len(secret_findings)
+    
+    # -- AUTO-ARCHIVE OLD REPOS --
+    if repo.pushed_at:
+        months_since_update = (datetime.now() - repo.pushed_at.replace(tzinfo=None)).days / 30
+        if months_since_update > ARCHIVE_AFTER_MONTHS:
+            print(f"  📦 Last updated {int(months_since_update)} months ago - archiving...")
+            repo.edit(archived=True)
+            stats['archived'] += 1
+    
+    print()
+
+# -- SUMMARY --
+print("=" * 60)
+print("🎉 BROski Constellation Cleaning COMPLETE!")
+print("=" * 60)
+print(f"📝 Descriptions added: {stats['descriptions_added']}")
+print(f"📄 READMEs created: {stats['readmes_added']}")
+print(f"🏷️  Repos tagged: {stats['topics_added']}")
+print(f"📦 Repos archived: {stats['archived']}")
+print(f"🚨 Potential secrets found: {stats['secrets_found']}")
+print("\n✨ Your constellation is looking SHARP, BROski! ✨")
